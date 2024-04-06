@@ -419,6 +419,8 @@ def _record_coords(
                     for fname, f in param_fdict.items():
                         _ret[fname] = f(p).item()
                     records.append(_ret)
+                    
+        assert 1 == 1
 
     return f
 

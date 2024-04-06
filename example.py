@@ -68,8 +68,8 @@ y = torch.randn(4, 33, 41).to("cuda:0")
 # y = model(x)
 
 
-# df = get_coord_data(mup_engine, (x, y), n_seeds=1, n_steps=3)
-# df.to_csv("contents/example.csv")
+df = get_coord_data(mup_engine, (x, y), n_seeds=1, n_steps=3)
+df.to_csv("contents/example.csv")
 
 
 plot_coord_data(

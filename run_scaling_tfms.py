@@ -63,8 +63,8 @@ class MyModel(nn.Module):
             x = nn.ReLU()(x)
         x = self.unembed(x)
         
-        # x.mean(dim=[0, 1]).abs().mean()
-        l1_norm = torch.abs(x).mean()
+        l1_norm = x.mean(dim=[0, 1]).abs().mean()
+        # l1_norm = torch.abs(x).mean()
         wandb.log({f"{self.log_name}": l1_norm})        
         return x
     
@@ -198,11 +198,39 @@ N_EPOCHS = 100
 #             ),
 #         )
 
-for epoch in range(N_EPOCHS):
-    for step, batch in enumerate(dataloaders):
 
+def log_statistics(prefix, model, width, step):
+    LOGGING = []
+    
+    from ezmup.ezmup import _record_coords
+    handles = []
+    for name, module in model.named_modules():
+        handles.append(module.register_forward_hook(
+            _record_coords(
+                LOGGING,
+                width,
+                f"{prefix}_{name}",
+                step,
+                output_fdict=None,
+                input_fdict=None,
+                param_fdict=None,
+            ),
+        ))
+    
+    return LOGGING, handles
+
+# LOGGING = []
+# log_statistics("mup", mup_engine.model, 8192, LOGGING)
+# log_statistics("ref", ref_model, 8192, LOGGING)
+
+step = 0
+for epoch in range(N_EPOCHS):
+    for batch in dataloaders:
         # x = torch.arange(4*33*41).view(4, 33, 41).float().to("cuda:0") + ((step+1)*offset)
         # y = torch.cos(x).to("cuda:0")
+        
+        mup_logging, mup_handles = log_statistics("mup", mup_engine.model, 8192, step)
+        ref_logging, ref_handles = log_statistics("ref", ref_model, 8192, step)
         
         batch = {k: v.squeeze(dim=1).to("cuda") for k, v in batch.items()}
         targets = batch["input_ids"][:, 1:].contiguous()
@@ -221,7 +249,18 @@ for epoch in range(N_EPOCHS):
         ref_optim.zero_grad()
         
         print(f"step: {step}")
-        wandb.log({"mup_loss": mup_loss.item(), "ref_loss": ref_loss.item()})
+        wandb.log({"mup_loss": mup_loss.item(), "ref_loss": ref_loss.item(), "step": step})
+        
+        for handle in mup_handles:
+            handle.remove()
+            
+        for handle in ref_handles:
+            handle.remove()
+            
+        step += 1
+        
+        # NOTE merge the logging of mu, and ref, then log to wandb
+        wandb.log({**{x["module"]: x["l1"] for x in mup_logging}, **{x["module"]: x["l1"] for x in ref_logging}, "step": step})
 
 
     # plot_coord_data(
