@@ -39,6 +39,7 @@ LAYER_REGISTRY = {
     "Linear.weight": SPECTRAL_DEFAULT,
     "Linear.bias": SPECTRAL_DEFAULT,
     "Embedding.weight": (1.0, 1.0),
+    "Embedding.bias": (1.0, 1.0),
     "BatchNorm2d.weight": (1.0, 1.0),
     "BatchNorm2d.bias": (0.0, 1.0),
     "LayerNorm.weight": (1.0, 1.0),
@@ -481,6 +482,78 @@ def get_coord_data(
                 model_engine.model.train()
 
                 loss = model_engine.forward(datapoint, model_engine.model)
+                                
+                loss.backward()
+                optim.step()
+                optim.zero_grad()
+
+                for handle in remove_hooks:
+                    handle.remove()
+
+    return pd.DataFrame(df)
+
+
+
+def get_coord_data(
+    model_engine,
+    datapoint,
+    width_list=None,
+    optim_cls=Adam,
+    optim_kwargs=None,
+    n_seeds=1,
+    n_steps=3,
+) -> pd.DataFrame:
+    """Get coordinate data for coord check.
+
+    Args:
+        model_engine (_type_): Ezmup model engine.
+        datapoint (_type_): A datapoint to be used for forward pass.
+        width_list (list, optional): _description_. Defaults to [64, 128, 256, 512, 1024, 2048, 4096, 8192].
+        optim_cls (_type_, optional): _description_. Defaults to Adam.
+        optim_kwargs (_type_, optional): _description_. Defaults to None.
+        n_seeds (int, optional): _description_. Defaults to 1.
+        n_steps (int, optional): _description_. Defaults to 3.
+
+    Returns:
+        pd.DataFrame: A dataframe containing the coordinate data.
+    """
+    df = []
+
+    # Mutable default arguments are dangerous. Use None instead.
+    if width_list is None:
+        width_list = [64, 128, 256, 512, 1024, 2048, 4096, 8192]
+
+    for i in range(n_seeds):
+        torch.manual_seed(i)
+        for width in width_list:
+            model_engine.change_width_as(width)
+            optim = (
+                model_engine.get_optimizer(optim_cls, lr=1e-3)
+                if optim_kwargs is None
+                else model_engine.get_optimizer(optim_cls, lr=1e-3, **optim_kwargs)
+            )
+
+            for j in range(n_steps):
+                remove_hooks = []
+                for name, module in model_engine.model.named_modules():
+                    remove_hooks.append(
+                        module.register_forward_hook(
+                            _record_coords(
+                                df,
+                                width,
+                                name,
+                                j,
+                                output_fdict=None,
+                                input_fdict=None,
+                                param_fdict=None,
+                            ),
+                        ),
+                    )
+
+                model_engine.model.train()
+
+                loss = model_engine.forward(datapoint, model_engine.model)
+                                
                 loss.backward()
                 optim.step()
                 optim.zero_grad()
